@@ -1,17 +1,17 @@
 package main
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 )
 
 type Employee struct {
-	EmployeeId   int
-	FirstName    string
-	LastName     string
+	EmployeeId   int    `db:"employee_id"`
+	FirstName    string `db:"first_name"`
+	LastName     string `db:"last_name"`
 	Email        string
 	PhoneNumber  string
 	HireDate     string
@@ -21,11 +21,11 @@ type Employee struct {
 	DepartmentId int
 }
 
-var db *sql.DB
+var db *sqlx.DB
 
 func main() {
 	var err error
-	db, err = sql.Open("mysql", "")
+	db, err = sqlx.Connect("mysql", "")
 
 	if err != nil {
 		panic(err)
@@ -51,7 +51,7 @@ func main() {
 	// 	panic(err)
 	// }
 
-	employees, err := GetEmployees()
+	employees, err := GetEmployeesX()
 
 	if err != nil {
 		fmt.Println(err)
@@ -62,7 +62,7 @@ func main() {
 		fmt.Println(employee)
 	}
 
-	employee, err := GetEmployee(116)
+	employee, err := GetEmployeeX(116)
 
 	if err != nil {
 		panic(err)
@@ -70,6 +70,16 @@ func main() {
 
 	fmt.Println(employee)
 
+}
+
+func GetEmployeesX() ([]Employee, error) {
+	query := "SELECT employee_id, first_name, last_name FROM employees"
+	employees := []Employee{}
+	err := db.Select(&employees, query)
+	if err != nil {
+		return nil, err
+	}
+	return employees, nil
 }
 
 func GetEmployees() ([]Employee, error) {
@@ -98,6 +108,16 @@ func GetEmployees() ([]Employee, error) {
 	return employees, nil
 }
 
+func GetEmployeeX(id int) (*Employee, error) {
+	query := "SELECT employee_id, first_name, last_name FROM employees WHERE employee_id=?"
+	employee := Employee{}
+	err := db.Get(&employee, query, id)
+	if err != nil {
+		return nil, err
+	}
+	return &employee, nil
+}
+
 func GetEmployee(id int) (*Employee, error) {
 	err := db.Ping()
 	if err != nil {
@@ -120,9 +140,14 @@ func GetEmployee(id int) (*Employee, error) {
 
 func AddEmployee(employee Employee) error {
 
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
 	query := "INSERT INTO employees(first_name, last_name, email, hire_date, job_id, salary) values(?, ?, ?, ?, ?, ?)"
 
-	result, err := db.Exec(query, employee.FirstName, employee.LastName, employee.Email, employee.HireDate, employee.JobId, employee.Salary)
+	result, err := tx.Exec(query, employee.FirstName, employee.LastName, employee.Email, employee.HireDate, employee.JobId, employee.Salary)
 
 	if err != nil {
 		return err
@@ -131,11 +156,17 @@ func AddEmployee(employee Employee) error {
 	affected, err := result.RowsAffected()
 
 	if err != nil {
+		tx.Rollback()
 		return nil
 	}
 
 	if affected <= 0 {
 		return errors.New("cannot insert")
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
 	}
 
 	return nil
